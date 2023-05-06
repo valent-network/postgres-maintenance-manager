@@ -60,13 +60,7 @@ class PostgresMaintenanceService
   end
 
   def wal_cleanup
-    all_wals_ls = `s3cmd ls s3://recario-space/backups/wals/*`.split("\n")
-    oldest_wal = all_wals_ls.map { |l| l.split(" ").first }.min
-    oldest_wal_created_days_ago = (Date.today - Date.parse(oldest_wal)).to_i
-    if oldest_wal_created_days_ago <= MIN_CLEANUP_DAYS
-      puts "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping"
-      return
-    end
+    puts "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping" && return unless old_wals_present?
 
     if !Dir.exist?(LOCAL_WALS_DIR_PATH) || Dir.empty?(LOCAL_WALS_DIR_PATH)
       puts "WAL archive not found locally, downloading from S3"
@@ -82,6 +76,8 @@ class PostgresMaintenanceService
   end
 
   def pg_basebackup_cleanup
+    puts "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping" && return unless old_wals_present?
+
     base_backups = `s3cmd ls s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/*`.split("\n").map { |line| line.split("/").last }
     puts "Found #{base_backups.size} backups on S3"
     return if base_backups.size <= KEEP_PG_BASEBACKUPS_NUMBER
@@ -125,6 +121,13 @@ class PostgresMaintenanceService
   end
 
   private
+
+  def old_wals_present?
+    all_wals_ls = `s3cmd ls s3://recario-space/backups/wals/*`.split("\n")
+    oldest_wal = all_wals_ls.map { |l| l.split(" ").first }.min
+    oldest_wal_created_days_ago = (Date.today - Date.parse(oldest_wal)).to_i
+    oldest_wal_created_days_ago <= MIN_CLEANUP_DAYS
+  end
 
   def prepare_restore
     if !Dir.exist?(LOCAL_PGDATA_DIR_PATH) || Dir.empty?(LOCAL_PGDATA_DIR_PATH)
