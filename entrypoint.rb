@@ -17,17 +17,36 @@ command = ARGV[0]
 
 service = PostgresMaintenanceService.new(command)
 
+def notify(messages, subject)
+  if %w[SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD SMTP_FROM SMTP_TO].any? { |smtp_var_name| ENV[smtp_var_name].to_s.length.zero? }
+    puts "Missing SMTP settings, no email will be sent."
+    return [messages, subject]
+  end
+
+  body = <<~MESSAGE_END
+    From: PostgreSQL Maintenance <#{ENV["SMTP_FROM"]}>
+    To: Admin <#{ENV["SMTP_TO"]}>
+    Subject: #{subject}
+
+    #{messages.join("\n")}
+  MESSAGE_END
+
+  Net::SMTP.start(ENV["SMTP_HOST"], ENV["SMTP_PORT"], "localhost", ENV["SMTP_USER"], ENV["SMTP_PASSWORD"], :login) do |smtp|
+    smtp.send_message(body, ENV["SMTP_FROM"], ENV["SMTP_TO"])
+  end
+end
+
 case command
 when "pg_basebackup"
-  service.pg_basebackup
+  notify(*service.pg_basebackup)
 when "restore"
   service.restore
 when "restore_and_check"
-  service.restore_and_check
+  notify(*service.restore_and_check)
 when "wal_cleanup"
-  service.wal_cleanup
+  notify(*service.wal_cleanup)
 when "pg_basebackup_cleanup"
-  service.pg_basebackup_cleanup
+  notify(*service.pg_basebackup_cleanup)
 else
   puts "Available commands: pg_basebackup, restore, restore_and_check, wal_cleanup, pg_basebackup_cleanup"
 end

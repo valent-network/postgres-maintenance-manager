@@ -2,6 +2,7 @@ require "date"
 require "fileutils"
 require "timeout"
 require "debug"
+require "open3"
 
 class PostgresMaintenanceService
   S3_HOST = ENV.fetch("S3_HOST").freeze
@@ -43,20 +44,50 @@ class PostgresMaintenanceService
   end
 
   def pg_basebackup
+    messages = []
     puts "Checking if backup was taken already today"
-    base_backups = `s3cmd ls s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/*`.split("\n").map { |line| line.split("/").last }
+
+    stdout, stderr, status = Open3.capture3("s3cmd ls s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/*")
+    if status.success?
+      puts "Successfully fetched basebackups list"
+      base_backups = stdout.split("\n").map { |line| line.split("/").last }
+    else
+      messages << stderr
+      return [messages, "FAILURE"]
+    end
 
     if base_backups.include?(Date.today.to_s)
       puts "Backup was already taken today. Skipping"
-      return
+      messages << "Backup was already taken today. Skipping"
+      return [messages, "SUCCESS"]
     end
 
     puts "Starting pg_basebackup"
-    `pg_basebackup -h #{POSTGRES_HOST} -p #{POSTGRES_PORT} -U #{POSTGRES_USER} -D #{LOCAL_PG_BASEBACKUP_DIR_PATH} --progress -z -Ft`
+
+    _stdout, stderr, status = Open3.capture3("pg_basebackup -h #{POSTGRES_HOST} -p #{POSTGRES_PORT} -U #{POSTGRES_USER} -D #{LOCAL_PG_BASEBACKUP_DIR_PATH} --progress -z -Ft")
+    if status.success?
+      puts "Successfully processed backup"
+      messages << "Successfully processed backup"
+    else
+      messages << stderr
+      return [messages, "FAILURE"]
+    end
+
     puts "Uploading basebackup to S3 "
-    `s3cmd put --recursive #{LOCAL_PG_BASEBACKUP_DIR_PATH}/* "s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{Date.today}/" --no-check-certificate`
+
+    _stdout, stderr, status = Open3.capture3(%(s3cmd put --recursive #{LOCAL_PG_BASEBACKUP_DIR_PATH}/* "s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{Date.today}/" --no-check-certificate))
+    if status.success?
+      puts "Successfully uploaded new basebackup"
+      messages << "Successfully uploaded new basebackup"
+    else
+      messages << stderr
+      return [messages, "FAILURE"]
+    end
+
     puts "Removing basebackup from local"
     FileUtils.rm_rf(LOCAL_PG_BASEBACKUP_DIR_PATH)
+
+    [messages, "SUCCESS"]
   end
 
   def wal_cleanup
