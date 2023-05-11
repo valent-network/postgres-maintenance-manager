@@ -106,15 +106,19 @@ class PostgresMaintenanceService
     puts "Oldest backup found: #{oldest_backup_wal_file_name}"
     wals_to_delete = `pg_archivecleanup -n #{LOCAL_WALS_DIR_PATH} #{oldest_backup_wal_file_name}`
     wals_to_delete = wals_to_delete.split("\n").map { |l| l.split("/").last }.map { |wal_file_name| "s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/#{wal_file_name}" }
-    puts "Deleting #{wals_to_delete.size} WAL files from S3"
 
-    stdout, stderr, status = Open3.capture3(%(s3cmd del #{wals_to_delete.join(" ")}))
-    if status.success?
-      messages << stdout
+    if wals_to_delete.size.positive?
+      puts "Deleting #{wals_to_delete.size} WAL files from S3"
+
+      stdout, stderr, status = Open3.capture3(%(s3cmd del #{wals_to_delete.join(" ")}))
+      if status.success?
+        messages << stdout
+      else
+        messages << stderr
+        return [messages, "FAILURE"]
+      end
+
       [messages, "SUCCESS"]
-    else
-      messages << stderr
-      [messages, "FAILURE"]
     end
   end
 
