@@ -277,6 +277,7 @@ class PostgresMaintenanceService
               messages << "There are #{users_count} Users. Error"
               status = "WARNING"
             end
+            break
           else
             puts "Waiting for Postgres to start..."
             sleep(WAITING_STEP_SEC)
