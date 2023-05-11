@@ -107,9 +107,15 @@ class PostgresMaintenanceService
     wals_to_delete = `pg_archivecleanup -n #{LOCAL_WALS_DIR_PATH} #{oldest_backup_wal_file_name}`
     wals_to_delete = wals_to_delete.split("\n").map { |l| l.split("/").last }.map { |wal_file_name| "s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/#{wal_file_name}" }
     puts "Deleting #{wals_to_delete.size} WAL files from S3"
-    `s3cmd del #{wals_to_delete.join(" ")}`
 
-    [messages, "SUCCESS"]
+    stdout, stderr, status = Open3.capture3(%(s3cmd del #{wals_to_delete.join(" ")}))
+    if status.success?
+      messages << stdout
+      [messages, "SUCCESS"]
+    else
+      messages << stderr
+      [messages, "FAILURE"]
+    end
   end
 
   def pg_basebackup_cleanup
@@ -138,7 +144,14 @@ class PostgresMaintenanceService
 
     if wals_backups_to_delete.size.positive?
       puts "Deleting WAL .backup files: #{wals_backups_to_delete.join(", ")}".to_s
-      `s3cmd del #{wals_backups_to_delete.join(" ")}`
+      stdout, stderr, status = Open3.capture3(%(s3cmd del #{wals_backups_to_delete.join(" ")}))
+      if status.success?
+        messages << stdout
+      else
+        messages << stderr
+        return [messages, "FAILURE"]
+      end
+
     else
       puts "WAL .backup files were not found for basebackups, skipping"
     end
@@ -154,7 +167,6 @@ class PostgresMaintenanceService
   end
 
   def restore_and_check
-    messages = []
     prepare_restore
 
     puts "Starting postgres in background"
@@ -162,7 +174,6 @@ class PostgresMaintenanceService
 
     puts "Check procedure started. It will try to wait until postgres is fully operational (may take a while). Max waiting time is: #{MAX_WAITING_TIME_SEC} seconds"
     check
-    [messages, "SUCCESS"]
   end
 
   private
@@ -239,32 +250,41 @@ class PostgresMaintenanceService
   end
 
   def check
+    messages = []
     waiting_time = 0
+    status = "SUCCESS"
 
-    Timeout.timeout(MAX_WAITING_TIME_SEC) do
-      loop do
-        if postgres_running?
-          puts "Postgres started in #{waiting_time} seconds"
-          users_count = `psql -U #{POSTGRES_USER} -h localhost -d #{CHECK_DATABASE} -t -c "#{CHECK_QUERY};"`.strip.to_i
+    begin
+      Timeout.timeout(MAX_WAITING_TIME_SEC) do
+        loop do
+          if postgres_running?
+            puts "Postgres started in #{waiting_time} seconds"
+            users_count = `psql -U #{POSTGRES_USER} -h localhost -d #{CHECK_DATABASE} -t -c "#{CHECK_QUERY};"`.strip.to_i
 
-          if users_count > 0
-            puts "There are #{users_count} Users records in this backup. Success."
-            exit(0)
+            if users_count > 0
+              puts "There are #{users_count} Users records in this backup. Success."
+              messages << "There are #{users_count} Users records in this backup. Success."
+              messages << "Waiting Time is #{waiting_time} seconds"
+            else
+              puts "There are #{users_count} Users. Error"
+              messages << "There are #{users_count} Users. Error"
+              status = "WARNING"
+            end
           else
-            puts "There are #{users_count} Users. Error"
-            exit(1)
+            puts "Waiting for Postgres to start..."
+            sleep(WAITING_STEP_SEC)
+            waiting_time += WAITING_STEP_SEC
+            redo
           end
-        else
-          puts "Waiting for Postgres to start..."
-          sleep(WAITING_STEP_SEC)
-          waiting_time += WAITING_STEP_SEC
-          redo
         end
       end
+    rescue Timeout::Error
+      puts "Postgres hasn't started in #{MAX_WAITING_TIME_SEC} seconds"
+      messages << "Postgres hasn't started in #{MAX_WAITING_TIME_SEC} seconds"
+      status = "FAILURE"
     end
-  rescue Timeout::Error
-    puts "Postgres hasn't started in #{MAX_WAITING_TIME_SEC} seconds"
-    exit(1)
+
+    [messages, status]
   end
 
   def postgres_running?
