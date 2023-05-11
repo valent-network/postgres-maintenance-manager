@@ -94,7 +94,7 @@ class PostgresMaintenanceService
     messages = []
     unless old_wals_present?
       puts "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping"
-      return
+      return [messages, "SUCCESS"]
     end
 
     if !Dir.exist?(LOCAL_WALS_DIR_PATH) || Dir.empty?(LOCAL_WALS_DIR_PATH)
@@ -116,12 +116,12 @@ class PostgresMaintenanceService
     messages = []
     unless old_wals_present?
       puts "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping"
-      return
+      return [messages, "SUCCESS"]
     end
 
     base_backups = `s3cmd ls s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/*`.split("\n").map { |line| line.split("/").last }
     puts "Found #{base_backups.size} backups on S3"
-    return if base_backups.size <= KEEP_PG_BASEBACKUPS_NUMBER
+    return [messages, "SUCCESS"] if base_backups.size <= KEEP_PG_BASEBACKUPS_NUMBER
 
     KEEP_PG_BASEBACKUPS_NUMBER.times { base_backups.pop }
     puts "Going to delete next backups: #{base_backups.join(", ")}"
