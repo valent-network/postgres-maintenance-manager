@@ -157,6 +157,16 @@ class PostgresMaintenanceService
         return [messages, "FAILURE"]
       end
 
+      base_backups_to_delete = base_backups.map { |dir_name| "s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{dir_name}" }
+
+      stdout, stderr, status = Open3.capture3(%(s3cmd del -r #{base_backups_to_delete.join(" ")}))
+      if status.success?
+        messages << stdout
+      else
+        messages << stderr
+        return [messages, "FAILURE"]
+      end
+
     else
       puts "WAL .backup files were not found for basebackups, skipping"
       messages << "WAL .backup files were not found for basebackups, skipping"
