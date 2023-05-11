@@ -132,8 +132,17 @@ class PostgresMaintenanceService
     return [messages, "SUCCESS"] if base_backups.size <= KEEP_PG_BASEBACKUPS_NUMBER
 
     KEEP_PG_BASEBACKUPS_NUMBER.times { base_backups.pop }
+    base_backups_to_delete = base_backups.map { |dir_name| "s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{dir_name}" }
     puts "Going to delete next backups: #{base_backups.join(", ")}"
     messages << "Going to delete next backups: #{base_backups.join(", ")}"
+
+    stdout, stderr, status = Open3.capture3(%(s3cmd del -r #{base_backups_to_delete.join(" ")}))
+    if status.success?
+      messages << stdout
+    else
+      messages << stderr
+      return [messages, "FAILURE"]
+    end
 
     stdout, stderr, status = Open3.capture3(%(s3cmd ls "s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/"))
     if status.success?
@@ -150,16 +159,6 @@ class PostgresMaintenanceService
       messages << "Deleting WAL .backup files: #{wals_backups_to_delete.join(", ")}"
 
       stdout, stderr, status = Open3.capture3(%(s3cmd del #{wals_backups_to_delete.join(" ")}))
-      if status.success?
-        messages << stdout
-      else
-        messages << stderr
-        return [messages, "FAILURE"]
-      end
-
-      base_backups_to_delete = base_backups.map { |dir_name| "s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{dir_name}" }
-
-      stdout, stderr, status = Open3.capture3(%(s3cmd del -r #{base_backups_to_delete.join(" ")}))
       if status.success?
         messages << stdout
       else
