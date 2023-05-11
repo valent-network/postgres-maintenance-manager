@@ -122,28 +122,33 @@ class PostgresMaintenanceService
     messages = []
     unless old_wals_present?
       puts "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping"
+      messages << "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping"
       return [messages, "SUCCESS"]
     end
 
     base_backups = `s3cmd ls s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/*`.split("\n").map { |line| line.split("/").last }
     puts "Found #{base_backups.size} backups on S3"
+    messages << "Found #{base_backups.size} backups on S3"
     return [messages, "SUCCESS"] if base_backups.size <= KEEP_PG_BASEBACKUPS_NUMBER
 
     KEEP_PG_BASEBACKUPS_NUMBER.times { base_backups.pop }
     puts "Going to delete next backups: #{base_backups.join(", ")}"
+    messages << "Going to delete next backups: #{base_backups.join(", ")}"
 
-    if !Dir.exist?(LOCAL_WALS_DIR_PATH) || Dir.empty?(LOCAL_WALS_DIR_PATH)
-      puts "WAL archive not found locally, downloading from S3"
-      `s3cmd sync s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/ #{LOCAL_WALS_DIR_PATH}/`
+    stdout, stderr, status = Open3.capture3(%(s3cmd ls "s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/"))
+    if status.success?
+      wals_backups_to_delete = stdout.split("\n")
+        .select { |line| line =~ /\.backup$/ && base_backups.include?(line.split(" ").first) }
+        .map { |line| line.split(" ").last }
+    else
+      messages << stderr
+      return [messages, "FAILURE"]
     end
 
-    wals_backups_to_delete = Dir.glob("#{LOCAL_WALS_DIR_PATH}/*.backup")
-      .select { |path| base_backups.include?(File.mtime(path).to_date.to_s) }
-      .map { |wal_backup_path| File.basename(wal_backup_path) }
-      .map { |wal_file_name| "s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/#{wal_file_name}" }
-
     if wals_backups_to_delete.size.positive?
-      puts "Deleting WAL .backup files: #{wals_backups_to_delete.join(", ")}".to_s
+      puts "Deleting WAL .backup files: #{wals_backups_to_delete.join(", ")}"
+      messages << "Deleting WAL .backup files: #{wals_backups_to_delete.join(", ")}"
+
       stdout, stderr, status = Open3.capture3(%(s3cmd del #{wals_backups_to_delete.join(" ")}))
       if status.success?
         messages << stdout
@@ -154,6 +159,7 @@ class PostgresMaintenanceService
 
     else
       puts "WAL .backup files were not found for basebackups, skipping"
+      messages << "WAL .backup files were not found for basebackups, skipping"
     end
 
     [messages, "SUCCESS"]
