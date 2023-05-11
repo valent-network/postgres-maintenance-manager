@@ -18,16 +18,18 @@ command = ARGV[0]
 
 service = PostgresMaintenanceService.new(command)
 
-def notify(messages, subject)
+def notify(messages, subject, action)
   if %w[SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD SMTP_FROM SMTP_TO].any? { |smtp_var_name| ENV[smtp_var_name].to_s.length.zero? }
     puts "Missing SMTP settings, no email will be sent."
+    puts "Subject [#{action}][#{subject}]"
+    puts messages.join("\n")
     return [messages, subject]
   end
 
   body = <<~MESSAGE_END
     From: PostgreSQL Maintenance <#{ENV["SMTP_FROM"]}>
     To: Admin <#{ENV["SMTP_TO"]}>
-    Subject: #{subject}
+    Subject: [#{action}][#{subject}]
 
     #{messages.join("\n")}
   MESSAGE_END
@@ -39,15 +41,15 @@ end
 
 case command
 when "pg_basebackup"
-  notify(*service.pg_basebackup)
+  notify(*service.pg_basebackup, "Backup")
 when "restore"
   service.restore
 when "restore_and_check"
-  notify(*service.restore_and_check)
+  notify(*service.restore_and_check, "Check Restore")
 when "wal_cleanup"
-  notify(*service.wal_cleanup)
+  notify(*service.wal_cleanup, "Cleanup WALs")
 when "pg_basebackup_cleanup"
-  notify(*service.pg_basebackup_cleanup)
+  notify(*service.pg_basebackup_cleanup, "Cleanup Backups")
 else
   puts "Available commands: pg_basebackup, restore, restore_and_check, wal_cleanup, pg_basebackup_cleanup"
 end
