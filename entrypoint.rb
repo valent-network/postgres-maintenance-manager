@@ -1,6 +1,7 @@
 #!/usr/local/bin/ruby
 
 require "./postgres_maintenance_service"
+require "net/smtp"
 
 raise "Single command expected as input" if ARGV.size > 1
 raise "Missing S3 configuration" unless %w[S3_ACCESS_KEY S3_REGION S3_HOST_BUCKET S3_HOST_BUCKET S3_SECRET_KEY].all? { |s3_var_name| ENV[s3_var_name].to_s.length.positive? }
