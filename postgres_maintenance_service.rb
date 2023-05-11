@@ -73,7 +73,7 @@ class PostgresMaintenanceService
       return [messages, "FAILURE"]
     end
 
-    puts "Uploading basebackup to S3 "
+    puts "Uploading basebackup to S3"
 
     _stdout, stderr, status = Open3.capture3(%(s3cmd put --recursive #{LOCAL_PG_BASEBACKUP_DIR_PATH}/* "s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{Date.today}/" --no-check-certificate))
     if status.success?
@@ -91,6 +91,7 @@ class PostgresMaintenanceService
   end
 
   def wal_cleanup
+    messages = []
     unless old_wals_present?
       puts "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping"
       return
@@ -107,9 +108,12 @@ class PostgresMaintenanceService
     wals_to_delete = wals_to_delete.split("\n").map { |l| l.split("/").last }.map { |wal_file_name| "s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/#{wal_file_name}" }
     puts "Deleting #{wals_to_delete.size} WAL files from S3"
     `s3cmd del #{wals_to_delete.join(" ")}`
+
+    [messages, "SUCCESS"]
   end
 
   def pg_basebackup_cleanup
+    messages = []
     unless old_wals_present?
       puts "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping"
       return
@@ -138,6 +142,8 @@ class PostgresMaintenanceService
     else
       puts "WAL .backup files were not found for basebackups, skipping"
     end
+
+    [messages, "SUCCESS"]
   end
 
   def restore
@@ -148,6 +154,7 @@ class PostgresMaintenanceService
   end
 
   def restore_and_check
+    messages = []
     prepare_restore
 
     puts "Starting postgres in background"
@@ -155,6 +162,7 @@ class PostgresMaintenanceService
 
     puts "Check procedure started. It will try to wait until postgres is fully operational (may take a while). Max waiting time is: #{MAX_WAITING_TIME_SEC} seconds"
     check
+    [messages, "SUCCESS"]
   end
 
   private
