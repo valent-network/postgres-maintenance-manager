@@ -204,7 +204,6 @@ class PostgresMaintenanceService
     if !Dir.exist?(LOCAL_PGDATA_DIR_PATH) || Dir.empty?(LOCAL_PGDATA_DIR_PATH)
       base_backups = `s3cmd ls s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/*`.split("\n").map { |line| line.split("/").last }
       latest_backup = base_backups.map { |backup_date_from_file_path| Date.parse(backup_date_from_file_path).to_s }.max
-      ractors = []
 
       puts "Found next backups: #{base_backups.join(", ")}, latest is #{latest_backup}"
 
@@ -212,31 +211,20 @@ class PostgresMaintenanceService
       FileUtils.mkdir_p(LOCAL_PGDATA_DIR_PATH)
       FileUtils.mkdir_p("#{LOCAL_PGDATA_DIR_PATH}/pg_wal")
 
-      ractors << Ractor.new do
-        r_latest_backup = receive
-        puts "Downloading base.tar.gz"
-        `s3cmd get s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{r_latest_backup}/base.tar.gz #{LOCAL_LATEST_BACKUP_DIR_PATH}/base.tar.gz`
-        puts "Finished downloading base.tar.gz"
-        puts "Extracting base.tar.gz"
-        `tar -xvf #{LOCAL_LATEST_BACKUP_DIR_PATH}/base.tar.gz -C #{LOCAL_PGDATA_DIR_PATH}`
-        puts "Finished extracting base.tar.gz"
-        true
-      end
+      puts "Downloading pg_wal.tar.gz"
+      `s3cmd get s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{latest_backup}/pg_wal.tar.gz #{LOCAL_LATEST_BACKUP_DIR_PATH}/pg_wal.tar.gz`
+      puts "Finished downloading pg_wal.tar.gz"
+      puts "Extracting pg_wal.tar.gz"
+      `tar -xvf #{LOCAL_LATEST_BACKUP_DIR_PATH}/pg_wal.tar.gz -C #{LOCAL_PGDATA_DIR_PATH}/pg_wal`
+      puts "Finished extracting pg_wal.tar.gz"
 
-      ractors << Ractor.new do
-        r_latest_backup = receive
-        puts "Downloading pg_wal.tar.gz"
-        `s3cmd get s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{r_latest_backup}/pg_wal.tar.gz #{LOCAL_LATEST_BACKUP_DIR_PATH}/pg_wal.tar.gz`
-        puts "Finished downloading pg_wal.tar.gz"
-        puts "Extracting pg_wal.tar.gz"
-        `tar -xvf #{LOCAL_LATEST_BACKUP_DIR_PATH}/pg_wal.tar.gz -C #{LOCAL_PGDATA_DIR_PATH}/pg_wal`
-        puts "Finished extracting pg_wal.tar.gz"
-        true
-      end
+      puts "Downloading base.tar.gz"
+      `s3cmd get s3://#{S3_BUCKET_NAME}/#{S3_PG_BASEBACKUP_DIR_KEY}/#{latest_backup}/base.tar.gz #{LOCAL_LATEST_BACKUP_DIR_PATH}/base.tar.gz`
+      puts "Finished downloading base.tar.gz"
+      puts "Extracting base.tar.gz"
+      `tar -xvf #{LOCAL_LATEST_BACKUP_DIR_PATH}/base.tar.gz -C #{LOCAL_PGDATA_DIR_PATH}`
+      puts "Finished extracting base.tar.gz"
 
-      ractors.each { |r| r.send(latest_backup) }
-
-      ractors.map(&:take)
     else
       puts "Postgres data directory #{LOCAL_PGDATA_DIR_PATH} is not empty, using it to restore"
     end
