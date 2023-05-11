@@ -94,16 +94,19 @@ class PostgresMaintenanceService
     messages = []
     unless old_wals_present?
       puts "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping"
+      messages << "There are no WAL files created more than #{MIN_CLEANUP_DAYS} days. Skipping"
       return [messages, "SUCCESS"]
     end
 
     if !Dir.exist?(LOCAL_WALS_DIR_PATH) || Dir.empty?(LOCAL_WALS_DIR_PATH)
       puts "WAL archive not found locally, downloading from S3"
+      messages << "WAL archive not found locally, downloading from S3"
       `s3cmd sync s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/ #{LOCAL_WALS_DIR_PATH}/`
     end
 
     oldest_backup_wal_file_name = File.basename(Dir.glob("#{LOCAL_WALS_DIR_PATH}/*.backup").min_by { |path| File.mtime(path) })
     puts "Oldest backup found: #{oldest_backup_wal_file_name}"
+    messages << "Oldest backup found: #{oldest_backup_wal_file_name}"
     wals_to_delete = `pg_archivecleanup -n #{LOCAL_WALS_DIR_PATH} #{oldest_backup_wal_file_name}`
     wals_to_delete = wals_to_delete.split("\n").map { |l| l.split("/").last }.map { |wal_file_name| "s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/#{wal_file_name}" }
 
@@ -117,9 +120,9 @@ class PostgresMaintenanceService
         messages << stderr
         return [messages, "FAILURE"]
       end
-
-      [messages, "SUCCESS"]
     end
+
+    [messages, "SUCCESS"]
   end
 
   def pg_basebackup_cleanup
