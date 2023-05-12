@@ -27,7 +27,6 @@ This is a super opinionated way of handling backups in PostgreSQL cluster.
 * ENV variables validations
 * Test coverage
 * Github Actions build Docker image and push to docker.io
-* Email Notifications
 * Improved CLI UX
 * Verify usage with Amazon AWS S3 (currently used with Digital Ocean Spaces)
 * 
