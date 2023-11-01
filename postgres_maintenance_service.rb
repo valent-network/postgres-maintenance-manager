@@ -94,7 +94,7 @@ class PostgresMaintenanceService
 
     stdout, stderr, status = Open3.capture3(%(s3cmd ls "s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/"))
     if status.success?
-      wals_to_delete = stdout.split("\n").take_while { |l| !l.end_with?("backup") }.map { |l| l.split(" ").last }
+      wals_to_delete = stdout.split("\n").select { |l| l.end_with?("backup") }.map { |l| l.split(" ").last }
     else
       messages << stderr
       return [messages, "FAILURE"]
