@@ -101,15 +101,21 @@ class PostgresMaintenanceService
     end
 
     if wals_to_delete.size.positive?
-      puts "Deleting #{wals_to_delete.size} WAL files from S3"
+      threads = []
+      wals_to_delete.each_slice(1000) do |chunk|
+        threads << Thread.new do
+          puts "Deleting #{chunk.size} WAL files from S3"
 
-      stdout, stderr, status = Open3.capture3(%(s3cmd del #{wals_to_delete.join(" ")}))
-      if status.success?
-        messages << stdout
-      else
-        messages << stderr
-        return [messages, "FAILURE"]
+          stdout, stderr, status = Open3.capture3(%(s3cmd del #{chunk.join(" ")}))
+          if status.success?
+            messages << stdout
+          else
+            messages << stderr
+            return [messages, "FAILURE"]
+          end
+        end
       end
+      threads.map(&:join)
     end
 
     [messages, "SUCCESS"]
