@@ -91,13 +91,13 @@ class PostgresMaintenanceService
 
   def wal_cleanup
     messages = []
+    failure = false
 
     stdout, stderr, status = Open3.capture3(%(s3cmd ls "s3://#{S3_BUCKET_NAME}/#{S3_WALS_DIR_KEY}/"))
     if status.success?
-      wals_to_delete = stdout.split("\n").select { |l| l.end_with?("backup") }.map { |l| l.split(" ").last }
+      wals_to_delete = stdout.split("\n").take_while { |l| !l.end_with?("backup") }.map { |l| l.split(" ").last }
     else
-      messages << stderr
-      return [messages, "FAILURE"]
+      return [[stderr], "FAILURE"]
     end
 
     if wals_to_delete.size.positive?
@@ -105,21 +105,20 @@ class PostgresMaintenanceService
       wals_to_delete.each_slice(1000) do |chunk|
         threads << Thread.new do
           puts "Deleting #{chunk.size} WAL files from S3"
-          puts chunk.join(" ")
 
           stdout, stderr, status = Open3.capture3(%(s3cmd del #{chunk.join(" ")}))
           if status.success?
-            messages << stdout
+            stdout
           else
-            messages << stderr
-            return [messages, "FAILURE"]
+            failure = true
+            stderr
           end
         end
       end
-      threads.map(&:join)
+      messages.concat(threads.map(&:join))
     end
 
-    [messages, "SUCCESS"]
+    [messages, failure ? "FAILURE" : "SUCCESS"]
   end
 
   def pg_basebackup_cleanup
