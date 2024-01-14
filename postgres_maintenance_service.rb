@@ -105,6 +105,7 @@ class PostgresMaintenanceService
       wals_to_delete.each_slice(1000) do |chunk|
         threads << Thread.new do
           puts "Deleting #{chunk.size} WAL files from S3"
+          puts chunk.join(" ")
 
           stdout, stderr, status = Open3.capture3(%(s3cmd del #{chunk.join(" ")}))
           if status.success?
